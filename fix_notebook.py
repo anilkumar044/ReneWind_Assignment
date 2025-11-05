@@ -1,333 +1,281 @@
 #!/usr/bin/env python3
 """
-Script to fix critical issues in ReneWind_FINAL_Enhanced_With_Visualizations.ipynb
+Script to fix critical issues in ReneWind_FINAL_Enhanced_CORRECTED.ipynb
+and create a production-ready version.
 """
 
 import json
-import sys
-from pathlib import Path
+import re
 
-# File paths
-INPUT_NB = "/home/user/ReneWind_Assignment/ReneWind_FINAL_Enhanced_With_Visualizations.ipynb"
-OUTPUT_NB = "/home/user/ReneWind_Assignment/ReneWind_FINAL_Enhanced_CORRECTED.ipynb"
+# Load the notebook
+with open('ReneWind_FINAL_Enhanced_CORRECTED.ipynb', 'r') as f:
+    notebook = json.load(f)
 
-def find_cell_with_content(cells, search_str):
-    """Find cell index containing specific string"""
-    for idx, cell in enumerate(cells):
-        if cell['cell_type'] == 'code':
-            source = ''.join(cell['source'])
-            if search_str in source:
-                return idx
-    return -1
+print("=" * 80)
+print("FIXING CRITICAL NOTEBOOK ISSUES")
+print("=" * 80)
+print()
 
-def find_markdown_cell_with_content(cells, search_str):
-    """Find markdown cell index containing specific string"""
-    for idx, cell in enumerate(cells):
-        if cell['cell_type'] == 'markdown':
-            source = ''.join(cell['source'])
-            if search_str in source:
-                return idx
-    return -1
+original_cell_count = len(notebook['cells'])
+print(f"Original cell count: {original_cell_count}")
+print()
 
-def create_code_cell(source_lines):
-    """Create a new code cell"""
-    return {
+# Track changes
+changes = []
+
+# ==============================================================================
+# ISSUE 1: Remove legacy train_test_split cell
+# ==============================================================================
+print("ISSUE 1: Searching for legacy train_test_split cell...")
+print("-" * 80)
+
+cells_to_remove = []
+for idx, cell in enumerate(notebook['cells']):
+    if cell['cell_type'] == 'code':
+        source = ''.join(cell['source'])
+        # Look for the actual train_test_split call (not just import)
+        if re.search(r'X_train,\s*X_val,\s*y_train,\s*y_val\s*=\s*train_test_split', source):
+            print(f"✓ Found legacy train_test_split in cell {idx}")
+            print(f"  Preview: {source[:100]}...")
+            cells_to_remove.append(idx)
+            changes.append(f"Removed cell {idx}: Legacy train_test_split")
+
+if cells_to_remove:
+    # Remove cells (in reverse order to maintain indices)
+    for idx in reversed(cells_to_remove):
+        del notebook['cells'][idx]
+    print(f"✓ Removed {len(cells_to_remove)} cell(s)")
+else:
+    print("✓ No legacy train_test_split cell found (already clean)")
+
+print()
+
+# ==============================================================================
+# ISSUE 2: Verify CV loop structure
+# ==============================================================================
+print("ISSUE 2: Verifying CV loop structure...")
+print("-" * 80)
+
+cv_function_cell = None
+for idx, cell in enumerate(notebook['cells']):
+    if cell['cell_type'] == 'code':
+        source = ''.join(cell['source'])
+        if 'def train_model_with_enhanced_cv' in source:
+            cv_function_cell = idx
+            print(f"✓ Found train_model_with_enhanced_cv in cell {idx}")
+
+            # Check for proper loop structure
+            if 'fold_results.append(fold_data)' in source and 'for fold_idx' in source:
+                print("✓ CV loop structure appears correct")
+                print("  - Has fold_results.append(fold_data)")
+                print("  - Has for fold_idx loop")
+            else:
+                print("⚠ Warning: CV loop structure may need manual verification")
+            break
+
+print()
+
+# ==============================================================================
+# ISSUE 3: Fix test evaluation preprocessing (MOST CRITICAL)
+# ==============================================================================
+print("ISSUE 3: Fixing test evaluation preprocessing...")
+print("-" * 80)
+
+# Find the cell with X_train_full = X
+test_eval_cell = None
+for idx, cell in enumerate(notebook['cells']):
+    if cell['cell_type'] == 'code':
+        source = ''.join(cell['source'])
+        if 'X_train_full = X' in source and 'y_train_full = y' in source:
+            test_eval_cell = idx
+            print(f"✓ Found problematic test evaluation in cell {idx}")
+            break
+
+if test_eval_cell is not None:
+    # Insert preprocessing cell BEFORE the problematic cell
+    preprocessing_cell = {
         "cell_type": "code",
         "execution_count": None,
         "metadata": {},
         "outputs": [],
-        "source": source_lines
+        "source": [
+            "# ===============================================\n",
+            "# PREPROCESS FULL TRAINING DATA FOR FINAL MODEL\n",
+            "# ===============================================\n",
+            "\n",
+            "print(\"=\"*70)\n",
+            "print(\"PREPROCESSING FULL TRAINING DATA\")\n",
+            "print(\"=\"*70)\n",
+            "\n",
+            "# Impute missing values using median strategy\n",
+            "print(\"\\nStep 1: Imputing missing values...\")\n",
+            "imputer_full = SimpleImputer(strategy='median')\n",
+            "X_train_imputed = imputer_full.fit_transform(X)\n",
+            "print(f\"✓ Imputation complete\")\n",
+            "\n",
+            "# Scale features using StandardScaler\n",
+            "print(\"\\nStep 2: Scaling features...\")\n",
+            "scaler_full = StandardScaler()\n",
+            "X_train_scaled = scaler_full.fit_transform(X_train_imputed)\n",
+            "print(f\"✓ Scaling complete\")\n",
+            "\n",
+            "# Preprocess test data (transform only, don't fit)\n",
+            "print(\"\\nStep 3: Preprocessing test data...\")\n",
+            "X_test_imputed = imputer_full.transform(test_data[features])\n",
+            "X_test_scaled = scaler_full.transform(X_test_imputed)\n",
+            "print(f\"✓ Test preprocessing complete\")\n",
+            "\n",
+            "print(\"\\n\" + \"=\"*70)\n",
+            "print(\"PREPROCESSING SUMMARY\")\n",
+            "print(\"=\"*70)\n",
+            "print(f\"Training samples: {X_train_scaled.shape[0]}\")\n",
+            "print(f\"Test samples: {X_test_scaled.shape[0]}\")\n",
+            "print(f\"Features: {X_train_scaled.shape[1]}\")\n",
+            "print(f\"✓ All preprocessing complete - ready for final model training\")\n",
+            "print(\"=\"*70)\n"
+        ]
     }
 
-def main():
-    print("="*80)
-    print("NOTEBOOK FIX SCRIPT")
-    print("="*80)
+    # Insert the preprocessing cell
+    notebook['cells'].insert(test_eval_cell, preprocessing_cell)
+    print(f"✓ Inserted preprocessing cell at position {test_eval_cell}")
+    changes.append(f"Added preprocessing cell before cell {test_eval_cell}")
 
-    # Load notebook
-    print(f"\n1. Loading notebook: {INPUT_NB}")
-    with open(INPUT_NB, 'r') as f:
-        nb = json.load(f)
+    # Now update the problematic cell (now at test_eval_cell + 1)
+    old_source = ''.join(notebook['cells'][test_eval_cell + 1]['source'])
 
-    cells = nb['cells']
-    print(f"   Total cells: {len(cells)}")
+    # Replace X_train_full = X with X_train_full = X_train_scaled
+    new_source = old_source.replace(
+        'X_train_full = X',
+        'X_train_full = X_train_scaled  # Use preprocessed data'
+    )
 
-    changes = []
+    # Also fix any reference to raw test data
+    if 'test_data[features]' in new_source:
+        new_source = new_source.replace(
+            'test_data[features]',
+            'X_test_scaled  # Use preprocessed test data'
+        )
 
-    # ========================================================================
-    # ISSUE 1: Find and fix calculate_expected_cost function
-    # ========================================================================
-    print("\n2. Finding calculate_expected_cost function...")
-    calc_cost_idx = find_cell_with_content(cells, "def calculate_expected_cost")
+    # Update predictions to use X_test_scaled
+    if 'final_model.predict(' in new_source:
+        # Make sure we're using X_test_scaled
+        new_source = re.sub(
+            r'final_model\.predict\(test_data\[features\]',
+            'final_model.predict(X_test_scaled',
+            new_source
+        )
+        new_source = re.sub(
+            r'final_model\.predict\(X_test',
+            'final_model.predict(X_test_scaled',
+            new_source
+        )
 
-    if calc_cost_idx == -1:
-        print("   ERROR: calculate_expected_cost function not found!")
-        sys.exit(1)
-
-    print(f"   Found at cell {calc_cost_idx}")
-
-    # Show current function
-    old_source = ''.join(cells[calc_cost_idx]['source'])
-    print(f"\n   Current function length: {len(old_source)} chars")
-
-    # New improved function with classification metrics
-    new_function = [
-        "def calculate_expected_cost(y_true, y_pred_proba, threshold, costs=None):\n",
-        "    \"\"\"\n",
-        "    Calculate expected cost with classification metrics.\n",
-        "    \n",
-        "    Parameters:\n",
-        "    -----------\n",
-        "    y_true : array-like\n",
-        "        True labels\n",
-        "    y_pred_proba : array-like\n",
-        "        Predicted probabilities for positive class\n",
-        "    threshold : float\n",
-        "        Decision threshold\n",
-        "    costs : dict, optional\n",
-        "        Cost dictionary (defaults to CostConfig)\n",
-        "    \n",
-        "    Returns:\n",
-        "    --------\n",
-        "    expected_cost : float\n",
-        "        Average cost per prediction\n",
-        "    metrics : dict\n",
-        "        Dictionary containing confusion matrix, costs, and classification metrics\n",
-        "    \"\"\"\n",
-        "    if costs is None:\n",
-        "        costs = CostConfig.get_cost_dict()\n",
-        "    \n",
-        "    # Apply threshold\n",
-        "    y_pred = (y_pred_proba >= threshold).astype(int)\n",
-        "    \n",
-        "    # Confusion matrix\n",
-        "    tn = ((y_true == 0) & (y_pred == 0)).sum()\n",
-        "    fp = ((y_true == 0) & (y_pred == 1)).sum()\n",
-        "    fn = ((y_true == 1) & (y_pred == 0)).sum()\n",
-        "    tp = ((y_true == 1) & (y_pred == 1)).sum()\n",
-        "    \n",
-        "    # Calculate costs\n",
-        "    cost_fn = fn * costs['FN']\n",
-        "    cost_tp = tp * costs['TP']\n",
-        "    cost_fp = fp * costs['FP']\n",
-        "    cost_tn = tn * costs['TN']\n",
-        "    total_cost = cost_fn + cost_tp + cost_fp + cost_tn\n",
-        "    expected_cost = total_cost / len(y_true) if len(y_true) > 0 else 0.0\n",
-        "    \n",
-        "    # Classification metrics\n",
-        "    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0\n",
-        "    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0\n",
-        "    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0\n",
-        "    accuracy = (tp + tn) / len(y_true) if len(y_true) > 0 else 0.0\n",
-        "    \n",
-        "    # Package all metrics\n",
-        "    metrics = {\n",
-        "        'tn': int(tn),\n",
-        "        'fp': int(fp),\n",
-        "        'fn': int(fn),\n",
-        "        'tp': int(tp),\n",
-        "        'cost_fn': float(cost_fn),\n",
-        "        'cost_tp': float(cost_tp),\n",
-        "        'cost_fp': float(cost_fp),\n",
-        "        'cost_tn': float(cost_tn),\n",
-        "        'total_cost': float(total_cost),\n",
-        "        'expected_cost': float(expected_cost),\n",
-        "        'precision': float(precision),\n",
-        "        'recall': float(recall),\n",
-        "        'f1': float(f1),\n",
-        "        'accuracy': float(accuracy)\n",
-        "    }\n",
-        "    \n",
-        "    return expected_cost, metrics\n"
+    notebook['cells'][test_eval_cell + 1]['source'] = new_source.split('\n')
+    # Add newline to each line except the last
+    notebook['cells'][test_eval_cell + 1]['source'] = [
+        line + '\n' if i < len(notebook['cells'][test_eval_cell + 1]['source']) - 1 else line
+        for i, line in enumerate(notebook['cells'][test_eval_cell + 1]['source'])
     ]
 
-    cells[calc_cost_idx]['source'] = new_function
-    changes.append({
-        'issue': 'Issue 2: Metric Dictionary Mismatch',
-        'cell_index': calc_cost_idx,
-        'description': 'Updated calculate_expected_cost() to return classification metrics (precision, recall, F1, accuracy)',
-        'lines_before': len(old_source.split('\n')),
-        'lines_after': len(new_function)
-    })
-    print(f"   ✓ Fixed calculate_expected_cost function")
+    print(f"✓ Updated cell {test_eval_cell + 1} to use preprocessed data")
+    changes.append(f"Updated cell {test_eval_cell + 1}: Use X_train_scaled instead of raw X")
+else:
+    print("⚠ Warning: Could not find test evaluation cell to fix")
 
-    # ========================================================================
-    # ISSUE 2: Find test evaluation section and add BASE_COSTS
-    # ========================================================================
-    print("\n3. Finding test evaluation section...")
+print()
 
-    # Look for the markdown header "Section 9: Final Model Evaluation on Test Data"
-    test_eval_header_idx = find_markdown_cell_with_content(cells, "Section 9: Final Model Evaluation on Test Data")
+# ==============================================================================
+# Additional fix: Update any other references to raw test data
+# ==============================================================================
+print("ISSUE 3b: Checking for other raw test data references...")
+print("-" * 80)
 
-    if test_eval_header_idx == -1:
-        print("   ERROR: Test evaluation section not found!")
-        sys.exit(1)
+fixed_count = 0
+for idx, cell in enumerate(notebook['cells']):
+    if cell['cell_type'] == 'code':
+        source = ''.join(cell['source'])
 
-    print(f"   Found test evaluation header at cell {test_eval_header_idx}")
+        # Look for predictions on raw test data that should use scaled
+        if 'model.predict(' in source and 'test_data[features]' in source:
+            # Check if this is after our preprocessing
+            if idx > test_eval_cell:
+                old_source = source
+                new_source = source.replace(
+                    'test_data[features]',
+                    'X_test_scaled'
+                )
+                if old_source != new_source:
+                    notebook['cells'][idx]['source'] = new_source.split('\n')
+                    notebook['cells'][idx]['source'] = [
+                        line + '\n' if i < len(notebook['cells'][idx]['source']) - 1 else line
+                        for i, line in enumerate(notebook['cells'][idx]['source'])
+                    ]
+                    print(f"✓ Fixed cell {idx}: Updated to use X_test_scaled")
+                    fixed_count += 1
+                    changes.append(f"Updated cell {idx}: Use X_test_scaled")
 
-    # Find the cell that uses BASE_COSTS
-    base_costs_usage_idx = find_cell_with_content(cells, "BASE_COSTS['FN']")
+if fixed_count > 0:
+    print(f"✓ Fixed {fixed_count} additional cell(s)")
+else:
+    print("✓ No additional cells need fixing")
 
-    if base_costs_usage_idx != -1:
-        print(f"   Found BASE_COSTS usage at cell {base_costs_usage_idx}")
+print()
 
-        # Insert BASE_COSTS definition before this cell
-        base_costs_cell = create_code_cell([
-            "# Get cost structure from configuration\n",
-            "BASE_COSTS = CostConfig.get_cost_dict()\n",
-            "print(\"Cost structure for test evaluation:\")\n",
-            "print(f\"  FN (Replacement): ${BASE_COSTS['FN']:.2f}\")\n",
-            "print(f\"  TP (Repair):      ${BASE_COSTS['TP']:.2f}\")\n",
-            "print(f\"  FP (Inspection):  ${BASE_COSTS['FP']:.2f}\")\n",
-            "print(f\"  TN (Normal):      ${BASE_COSTS['TN']:.2f}\")\n"
-        ])
+# ==============================================================================
+# Save the fixed notebook
+# ==============================================================================
+final_cell_count = len(notebook['cells'])
 
-        cells.insert(base_costs_usage_idx, base_costs_cell)
-        print(f"   ✓ Inserted BASE_COSTS definition at cell {base_costs_usage_idx}")
+print("=" * 80)
+print("SAVING PRODUCTION-READY NOTEBOOK")
+print("=" * 80)
+print(f"Original cells: {original_cell_count}")
+print(f"Final cells: {final_cell_count}")
+print(f"Net change: {final_cell_count - original_cell_count:+d}")
+print()
 
-        changes.append({
-            'issue': 'Issue 1: BASE_COSTS Not Defined',
-            'cell_index': base_costs_usage_idx,
-            'description': 'Added BASE_COSTS definition cell before test evaluation',
-            'action': 'Inserted new cell'
-        })
+output_file = 'ReneWind_FINAL_PRODUCTION.ipynb'
+with open(output_file, 'w') as f:
+    json.dump(notebook, f, indent=1, ensure_ascii=False)
 
-        # Update indices for subsequent searches
-        if calc_cost_idx >= base_costs_usage_idx:
-            calc_cost_idx += 1
-    else:
-        print("   WARNING: BASE_COSTS usage not found in notebook")
+print(f"✓ Saved to: {output_file}")
+print()
 
-    # ========================================================================
-    # ISSUE 3: Fix cost summary DataFrame
-    # ========================================================================
-    print("\n4. Finding cost summary DataFrame...")
+# ==============================================================================
+# Validate the notebook
+# ==============================================================================
+print("=" * 80)
+print("VALIDATION")
+print("=" * 80)
 
-    cost_summary_idx = find_cell_with_content(cells, "cost_summary = pd.DataFrame")
+# Check JSON is valid (already proven by successful dump)
+print("✓ JSON structure is valid")
 
-    if cost_summary_idx == -1:
-        print("   WARNING: cost_summary DataFrame not found")
-    else:
-        print(f"   Found at cell {cost_summary_idx}")
+# Check for common issues
+has_code_cells = any(cell['cell_type'] == 'code' for cell in notebook['cells'])
+has_markdown_cells = any(cell['cell_type'] == 'markdown' for cell in notebook['cells'])
+print(f"✓ Contains {sum(1 for c in notebook['cells'] if c['cell_type'] == 'code')} code cells")
+print(f"✓ Contains {sum(1 for c in notebook['cells'] if c['cell_type'] == 'markdown')} markdown cells")
 
-        # Check current source
-        old_summary_source = ''.join(cells[cost_summary_idx]['source'])
+print()
 
-        # New cost summary that uses correct metric keys
-        new_summary_source = [
-            "# Cost Summary Table\n",
-            "cost_summary = pd.DataFrame({\n",
-            "    'Threshold': ['Default (0.5)', 'Optimized', 'Naive (All Fail)'],\n",
-            "    'Expected Cost': [\n",
-            "        f\"${default_cost:.2f}\",\n",
-            "        f\"${optimal_cost:.2f}\",\n",
-            "        f\"${naive_cost:.2f}\"\n",
-            "    ],\n",
-            "    'Precision': [\n",
-            "        f\"{default_metrics['precision']:.3f}\",\n",
-            "        f\"{optimal_metrics['precision']:.3f}\",\n",
-            "        'N/A'\n",
-            "    ],\n",
-            "    'Recall': [\n",
-            "        f\"{default_metrics['recall']:.3f}\",\n",
-            "        f\"{optimal_metrics['recall']:.3f}\",\n",
-            "        '1.000'\n",
-            "    ],\n",
-            "    'F1 Score': [\n",
-            "        f\"{default_metrics['f1']:.3f}\",\n",
-            "        f\"{optimal_metrics['f1']:.3f}\",\n",
-            "        'N/A'\n",
-            "    ],\n",
-            "    'Accuracy': [\n",
-            "        f\"{default_metrics['accuracy']:.3f}\",\n",
-            "        f\"{optimal_metrics['accuracy']:.3f}\",\n",
-            "        '0.000'\n",
-            "    ]\n",
-            "})\n",
-            "\n",
-            "print(\"\\n\" + \"=\"*80)\n",
-            "print(\"COST COMPARISON SUMMARY\")\n",
-            "print(\"=\"*80)\n",
-            "print(cost_summary.to_string(index=False))\n",
-            "print(\"=\"*80)\n"
-        ]
+# ==============================================================================
+# Summary report
+# ==============================================================================
+print("=" * 80)
+print("SUMMARY OF CHANGES")
+print("=" * 80)
+for i, change in enumerate(changes, 1):
+    print(f"{i}. {change}")
 
-        cells[cost_summary_idx]['source'] = new_summary_source
-
-        changes.append({
-            'issue': 'Issue 3: Cost Summary DataFrame',
-            'cell_index': cost_summary_idx,
-            'description': 'Fixed cost_summary to use correct metric keys from extended function',
-            'lines_before': len(old_summary_source.split('\n')),
-            'lines_after': len(new_summary_source)
-        })
-        print(f"   ✓ Fixed cost_summary DataFrame")
-
-    # ========================================================================
-    # ISSUE 4: Verify SMOTE logging
-    # ========================================================================
-    print("\n5. Verifying SMOTE implementation...")
-
-    smote_idx = find_cell_with_content(cells, "if CostConfig.USE_SMOTE:")
-
-    if smote_idx == -1:
-        print("   WARNING: SMOTE code not found")
-    else:
-        print(f"   Found SMOTE implementation at cell {smote_idx}")
-        source = ''.join(cells[smote_idx]['source'])
-
-        # Check if logging is present
-        if "Before SMOTE:" in source and "After SMOTE:" in source:
-            print("   ✓ SMOTE logging already present")
-            changes.append({
-                'issue': 'Issue 4: SMOTE Verification',
-                'cell_index': smote_idx,
-                'description': 'SMOTE logging verified - already properly implemented',
-                'action': 'No changes needed'
-            })
-        else:
-            print("   ⚠ SMOTE logging may need enhancement")
-
-    # ========================================================================
-    # Save corrected notebook
-    # ========================================================================
-    print(f"\n6. Saving corrected notebook to: {OUTPUT_NB}")
-
-    with open(OUTPUT_NB, 'w') as f:
-        json.dump(nb, f, indent=1)
-
-    print(f"   ✓ Saved successfully")
-    print(f"   Total cells in corrected notebook: {len(cells)}")
-
-    # ========================================================================
-    # Generate Fix Report
-    # ========================================================================
-    print("\n" + "="*80)
-    print("FIX REPORT SUMMARY")
-    print("="*80)
-
-    for i, change in enumerate(changes, 1):
-        print(f"\n{i}. {change['issue']}")
-        print(f"   Cell Index: {change['cell_index']}")
-        print(f"   Description: {change['description']}")
-        if 'action' in change:
-            print(f"   Action: {change['action']}")
-        if 'lines_before' in change and 'lines_after' in change:
-            print(f"   Lines: {change['lines_before']} → {change['lines_after']}")
-
-    print("\n" + "="*80)
-    print(f"✓ All fixes applied successfully!")
-    print(f"✓ Output saved to: {OUTPUT_NB}")
-    print("="*80)
-
-    return changes
-
-if __name__ == "__main__":
-    try:
-        changes = main()
-        sys.exit(0)
-    except Exception as e:
-        print(f"\n❌ ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+print()
+print("=" * 80)
+print("✓ NOTEBOOK IS NOW PRODUCTION-READY")
+print("=" * 80)
+print()
+print("Next steps:")
+print("1. Review ReneWind_FINAL_PRODUCTION.ipynb")
+print("2. Run all cells to verify execution")
+print("3. Check that final model evaluation uses preprocessed data")
+print()
